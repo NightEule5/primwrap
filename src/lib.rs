@@ -58,25 +58,22 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 	let [TokenTree::Ident(inner_type)] = &field.r#type[..] else {
 		return Error::custom("unknown type").into_token_stream()
 	};
-
-	let target = gen.target_name().to_string();
+	let ref target = gen.target_name().to_string();
 
 	let result: Result = try {
-		match inner_type.try_into() {
-			Ok(Type::Int(ref inner)) => {
-				for op in arithmetic_ops_for_type(inner) {
-					op.expand(&mut gen, &target, inner)?;
-				}
-
-				expand_eq (&mut gen, &target, inner)?;
-				expand_ord(&mut gen, &target, inner)?;
+		let inner_type = match inner_type.try_into() {
+			Ok(it) => it,
+			Err(e) => return e
+		};
+		if let Type::Int(ref inner) = inner_type {
+			for op in arithmetic_ops_for_type(inner) {
+				op.expand(&mut gen, target, inner)?;
 			}
-			Ok(Type::Bool(ref inner)) => {
-
-			}
-			Err(error) => return error
 		}
 
+		let (Type::Int(ref inner) | Type::Bool(ref inner)) = inner_type;
+		expand_eq (&mut gen, target, inner)?;
+		expand_ord(&mut gen, target, inner)?;
 	};
 	if let Err(error) = result {
 		return error.into_token_stream()
