@@ -2,11 +2,13 @@
 
 #![feature(try_blocks)]
 
+mod cmp;
 mod ops;
 
 use proc_macro::TokenStream;
 use virtue::parse::StructBody;
 use virtue::prelude::*;
+use crate::cmp::{expand_eq, expand_ord};
 use crate::ops::{arithmetic_ops_for_type, Op};
 
 enum Type {
@@ -66,54 +68,8 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 					op.expand(&mut gen, &target, inner)?;
 				}
 
-				{
-					let mut peq = gen.impl_for(format!("PartialEq<{inner}>"));
-					peq.impl_outer_attr("automatically_derived")?;
-					peq.generate_fn("eq")
-					   .with_self_arg(FnSelfArg::RefSelf)
-					   .with_arg("other", format!("&{inner}"))
-					   .with_return_type("bool")
-					   .body(|body| {
-						   body.push_parsed("self.0.eq(other)")?;
-						   Ok(())
-					   })?;
-				}
-				{
-					let mut peq = gen.impl_trait_for_other_type(format!("PartialEq<{target}>"), inner.clone());
-					peq.impl_outer_attr("automatically_derived")?;
-					peq.generate_fn("eq")
-					   .with_self_arg(FnSelfArg::RefSelf)
-					   .with_arg("other", format!("&{target}"))
-					   .with_return_type("bool")
-					   .body(|body| {
-						   body.push_parsed("self.eq(&other.0)")?;
-						   Ok(())
-					   })?;
-				}
-				{
-					let mut pord = gen.impl_for(format!("PartialOrd<{inner}>"));
-					pord.impl_outer_attr("automatically_derived")?;
-					pord.generate_fn("partial_cmp")
-						.with_self_arg(FnSelfArg::RefSelf)
-						.with_arg("other", format!("&{inner}"))
-						.with_return_type("Option<core::cmp::Ordering>")
-						.body(|body| {
-							body.push_parsed("self.0.partial_cmp(other)")?;
-							Ok(())
-						})?;
-				}
-				{
-					let mut pord = gen.impl_trait_for_other_type(format!("PartialOrd<{target}>"), inner.clone());
-					pord.impl_outer_attr("automatically_derived")?;
-					pord.generate_fn("partial_cmp")
-						.with_self_arg(FnSelfArg::RefSelf)
-						.with_arg("other", format!("&{target}"))
-						.with_return_type("Option<core::cmp::Ordering>")
-						.body(|body| {
-							body.push_parsed("self.partial_cmp(&other.0)")?;
-							Ok(())
-						})?;
-				}
+				expand_eq (&mut gen, &target, inner)?;
+				expand_ord(&mut gen, &target, inner)?;
 			}
 			Ok(Type::Bool(ref inner)) => {
 
