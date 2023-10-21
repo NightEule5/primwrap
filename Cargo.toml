@@ -12,5 +12,6 @@ proc-macro = true
 
 [dependencies]
 proc-macro2 = "1.0"
+strum = { version = "0.25.0", features = ["derive"] }
 virtue = "0.0.15"
 

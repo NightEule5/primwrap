@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(incomplete_features)]
 #![feature(try_blocks)]
-#![feature(adt_const_params)]
 
 mod ops;
 
 use proc_macro::TokenStream;
 use virtue::parse::StructBody;
 use virtue::prelude::*;
-use crate::ops::arithmetic_ops_for_type;
+use crate::ops::{arithmetic_ops_for_type, Op};
 
 enum Type {
 	Int(String),
@@ -65,7 +63,7 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 		match inner_type.try_into() {
 			Ok(Type::Int(ref inner)) => {
 				for op in arithmetic_ops_for_type(inner) {
-					op.generate_impl(&mut gen, &target, inner)?;
+					op.expand(&mut gen, &target, inner)?;
 				}
 
 				{
