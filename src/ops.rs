@@ -12,7 +12,7 @@ pub trait Op: Sized {
 
 	fn expand_as_binary(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
 		expand_binary(self, gen, "Self", target, target, BinaryType::SelfSelf)?;
-		expand_binary(self, gen, inner, target, target, BinaryType::SelfOperand)
+		expand_binary(self, gen, inner, target, target, BinaryType::SelfOperand(true, inner))
 	}
 }
 
@@ -25,6 +25,10 @@ pub fn arithmetic_ops_for_type(type_name: &str) -> impl Iterator<Item = Arithmet
 	} else {
 		iter.take(6)
 	}
+}
+
+pub fn bit_ops_for_bool<'a>() -> &'a [Bit] {
+	&[Bit::And, Bit::Or, Bit::Xor, Bit::Not]
 }
 
 #[derive(Clone, Copy, EnumIter, IntoStaticStr)]
@@ -92,6 +96,23 @@ impl Op for Bit {
 	fn expand(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
 		if let Self::Not = self {
 			expand_unary(self, gen)
+		} else if let Self::Shl | Self::Shr = self {
+			const INT_TYPES: &[&str] = &[
+				"u8", "u16", "u32", "u64", "u128", "usize",
+				"i8", "i16", "i32", "i64", "i128", "isize"
+			];
+
+			if INT_TYPES.contains(&inner) {
+				expand_binary(self, gen, "Self", target, target, BinaryType::SelfSelf)?;
+			} else {
+				self.expand_as_binary(gen, target, inner)?;
+			}
+
+			for &int_type in INT_TYPES {
+				expand_binary(self, gen, int_type, target, target, BinaryType::SelfOperand(true, inner))?;
+			}
+
+			Ok(())
 		} else {
 			self.expand_as_binary(gen, target, inner)
 		}
@@ -99,17 +120,17 @@ impl Op for Bit {
 }
 
 #[derive(Copy, Clone)]
-enum BinaryType {
+enum BinaryType<'a> {
 	SelfSelf,
-	SelfOperand,
-	OperandSelf
+	SelfOperand(bool, &'a str),
+	OperandSelf(&'a str)
 }
 
 fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str, target: &str, ty: BinaryType) -> Result {
 	let trait_name = format!("core::ops::{}<{operand}>", op.trait_name());
 	let param = match ty {
 		BinaryType::SelfSelf => "Self(rhs)".into(),
-		BinaryType::OperandSelf => format!("{operand}(rhs)"),
+		BinaryType::OperandSelf(_) => format!("{operand}(rhs)"),
 		_ => "rhs".into()
 	};
 	let expr = binary_expr(op, ty);
@@ -128,9 +149,15 @@ fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str,
 		.body(|body| {
 			body.push_parsed(expr)?;
 
-			if let BinaryType::OperandSelf = ty {
+			if let BinaryType::OperandSelf(inner) = ty {
+				let cast = if inner == target {
+					"".into()
+				} else {
+					format!(" as {inner}")
+				};
+
 				// For inverse operations, wrap the result at the end.
-				body.push_parsed(format!("{output}(self)"))?;
+				body.push_parsed(format!("{output}(self{cast})"))?;
 			} else {
 				body.ident_str("self");
 			}
@@ -140,8 +167,8 @@ fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str,
 	drop(r#if);
 
 	// Generate the inverse (impl Op<Wrapper> for Primitive).
-	if let BinaryType::SelfOperand = ty {
-		expand_binary(op, gen, target, target, operand, BinaryType::OperandSelf)?;
+	if let BinaryType::SelfOperand(true, inner) = ty {
+		expand_binary(op, gen, target, target, operand, BinaryType::OperandSelf(inner))?;
 	}
 
 	Ok(())
@@ -165,8 +192,8 @@ fn binary_expr(op: &impl Op, ty: BinaryType) -> String {
 	let trait_name = op.trait_name();
 	let field_access = match ty {
 		BinaryType::SelfSelf |
-		BinaryType::SelfOperand => ".0",
-		BinaryType::OperandSelf => ""
+		BinaryType::SelfOperand(_, _) => ".0",
+		BinaryType::OperandSelf(_) => ""
 	};
 	format!(
 		"use core::ops::{trait_name}Assign;\

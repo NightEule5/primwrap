@@ -10,7 +10,7 @@ use strum::IntoEnumIterator;
 use virtue::parse::StructBody;
 use virtue::prelude::*;
 use crate::cmp::{expand_eq, expand_ord};
-use crate::ops::{arithmetic_ops_for_type, Bit, Op};
+use crate::ops::{arithmetic_ops_for_type, Bit, bit_ops_for_bool, Op};
 
 enum Type {
 	Int(String),
@@ -77,7 +77,10 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 					op.expand(&mut gen, target, inner)?;
 				}
 			}
-			Type::Bool(ref inner) => Bit::Not.expand(&mut gen, target, inner)?
+			Type::Bool(ref inner) =>
+				for op in bit_ops_for_bool() {
+					op.expand(&mut gen, target, inner)?;
+				}
 		}
 
 		let (Type::Int(ref inner) | Type::Bool(ref inner)) = inner_type;
