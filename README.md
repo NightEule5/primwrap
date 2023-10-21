@@ -18,5 +18,4 @@ fn main() {
 The implemented traits are:
 - Arithmetic: `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`
 - Bitwise: `Not`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`
-- `PartialEq`/`Eq` and `PartialOrd`/`Ord` with the inner type
-- `Copy` and `Clone`
+- `PartialEq`/`PartialOrd` with the inner type
