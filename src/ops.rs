@@ -11,8 +11,8 @@ pub trait Op: Sized {
 	fn expand(&self, gen: &mut Generator, target: &str, inner: &str) -> Result;
 
 	fn expand_as_binary(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
-		expand_binary(self, gen, target, target, BinaryType::SelfSelf)?;
-		expand_binary(self, gen, inner, target, BinaryType::SelfOperand)
+		expand_binary(self, gen, "Self", target, target, BinaryType::SelfSelf)?;
+		expand_binary(self, gen, inner, target, target, BinaryType::SelfOperand)
 	}
 }
 
@@ -69,7 +69,7 @@ enum BinaryType {
 	OperandSelf
 }
 
-fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str, ty: BinaryType) -> Result {
+fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str, target: &str, ty: BinaryType) -> Result {
 	let trait_name = format!("core::ops::{}<{operand}>", op.trait_name());
 	let param = match ty {
 		BinaryType::SelfSelf => "Self(rhs)".into(),
@@ -78,11 +78,11 @@ fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str,
 	};
 	let expr = binary_expr(op, ty);
 
-	expand_assign(op, gen, operand, &param, output, &expr)?;
+	expand_assign(op, gen, operand, &param, target, &expr)?;
 
 	// Use impl_trait_for_other_type instead of impl_for for greater flexibility.
 	// It's all the same underneath anyway.
-	let mut r#if = gen.impl_trait_for_other_type(trait_name, output);
+	let mut r#if = gen.impl_trait_for_other_type(trait_name, target);
 	r#if.impl_outer_attr("automatically_derived")?;
 	r#if.impl_type("Output", output)?;
 	r#if.generate_fn(op.fn_name())
@@ -90,14 +90,22 @@ fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str,
 		.with_arg(param, operand)
 		.with_return_type(output)
 		.body(|body| {
-			body.push_parsed(expr)?.ident_str("self");
+			body.push_parsed(expr)?;
+
+			if let BinaryType::OperandSelf = ty {
+				// For inverse operations, wrap the result at the end.
+				body.push_parsed(format!("{output}(self)"))?;
+			} else {
+				body.ident_str("self");
+			}
+
 			Ok(())
 		})?;
 	drop(r#if);
 
 	// Generate the inverse (impl Op<Wrapper> for Primitive).
 	if let BinaryType::SelfOperand = ty {
-		expand_binary(op, gen, output, operand, BinaryType::OperandSelf)?;
+		expand_binary(op, gen, target, target, operand, BinaryType::OperandSelf)?;
 	}
 
 	Ok(())
