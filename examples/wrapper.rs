@@ -16,6 +16,15 @@ fn main() {
 	assert!(wrapped > 0);
 	assert!(10 > wrapped);
 
+	let wrapped = Int(0xFF00);
+	assert_eq!(wrapped & 0xFF, 0);
+	assert_eq!(wrapped | 0xFF, 0xFFFF);
+	assert_eq!(wrapped ^ 0, 0xFF00);
+	assert_eq!(wrapped << 4, 0xFF000);
+	assert_eq!(wrapped >> 4, 0xFF0);
+	assert_eq!(!wrapped, 0xFFFF00FF);
+
 	let wrapped = Bool(true);
 	assert_eq!(wrapped, true);
+	assert_eq!(!wrapped, false);
 }

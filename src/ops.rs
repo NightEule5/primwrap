@@ -37,6 +37,19 @@ pub enum Arithmetic {
 	Neg
 }
 
+#[derive(Clone, Copy, EnumIter, IntoStaticStr)]
+pub enum Bit {
+	#[strum(to_string = "BitAnd")]
+	And,
+	#[strum(to_string = "BitOr")]
+	Or,
+	#[strum(to_string = "BitXor")]
+	Xor,
+	Shl,
+	Shr,
+	Not
+}
+
 impl Op for Arithmetic {
 	fn trait_name(&self) -> &'static str {
 		self.into()
@@ -55,6 +68,29 @@ impl Op for Arithmetic {
 
 	fn expand(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
 		if let Self::Neg = self {
+			expand_unary(self, gen)
+		} else {
+			self.expand_as_binary(gen, target, inner)
+		}
+	}
+}
+
+impl Op for Bit {
+	fn trait_name(&self) -> &'static str { self.into() }
+
+	fn fn_name(&self) -> &'static str {
+		match self {
+			Self::And => "bitand",
+			Self::Or  => "bitor",
+			Self::Xor => "bitxor",
+			Self::Shl => "shl",
+			Self::Shr => "shr",
+			Self::Not => "not"
+		}
+	}
+
+	fn expand(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
+		if let Self::Not = self {
 			expand_unary(self, gen)
 		} else {
 			self.expand_as_binary(gen, target, inner)
@@ -139,7 +175,7 @@ fn binary_expr(op: &impl Op, ty: BinaryType) -> String {
 }
 
 fn expand_unary(op: &impl Op, gen: &mut Generator) -> Result {
-	let trait_name = op.trait_name();
+	let trait_name = format!("core::ops::{}", op.trait_name());
 	let fn_name = op.fn_name();
 	let mut r#if = gen.impl_for(trait_name);
 	r#if.impl_outer_attr("automatically_derived")?;

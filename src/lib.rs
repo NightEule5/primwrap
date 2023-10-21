@@ -6,10 +6,11 @@ mod cmp;
 mod ops;
 
 use proc_macro::TokenStream;
+use strum::IntoEnumIterator;
 use virtue::parse::StructBody;
 use virtue::prelude::*;
 use crate::cmp::{expand_eq, expand_ord};
-use crate::ops::{arithmetic_ops_for_type, Op};
+use crate::ops::{arithmetic_ops_for_type, Bit, Op};
 
 enum Type {
 	Int(String),
@@ -65,10 +66,18 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 			Ok(it) => it,
 			Err(e) => return e
 		};
-		if let Type::Int(ref inner) = inner_type {
-			for op in arithmetic_ops_for_type(inner) {
-				op.expand(&mut gen, target, inner)?;
+
+		match inner_type {
+			Type::Int(ref inner) => {
+				for op in arithmetic_ops_for_type(inner) {
+					op.expand(&mut gen, target, inner)?;
+				}
+
+				for op in Bit::iter() {
+					op.expand(&mut gen, target, inner)?;
+				}
 			}
+			Type::Bool(ref inner) => Bit::Not.expand(&mut gen, target, inner)?
 		}
 
 		let (Type::Int(ref inner) | Type::Bool(ref inner)) = inner_type;
