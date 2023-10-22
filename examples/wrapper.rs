@@ -3,6 +3,7 @@
 use primwrap::Primitive;
 
 #[derive(Copy, Clone, Debug, Primitive)]
+#[primwrap(arithmetic, bitwise, comparison)]
 struct Int(u32);
 #[derive(Copy, Clone, Debug, Primitive)]
 struct Bool(bool);

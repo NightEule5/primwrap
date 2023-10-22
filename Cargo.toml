@@ -11,7 +11,7 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0"
 strum = { version = "0.25.0", features = ["derive"] }
+syn = "2.0.38"
 virtue = "0.0.15"
 
