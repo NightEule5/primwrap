@@ -2,10 +2,9 @@
 
 use primwrap::Primitive;
 
-#[derive(Copy, Clone, Debug, Primitive)]
-#[primwrap(arithmetic, bitwise, comparison)]
+#[derive(Copy, Clone, Primitive)]
 struct Int(u32);
-#[derive(Copy, Clone, Debug, Primitive)]
+#[derive(Copy, Clone, Primitive)]
 struct Bool(bool);
 
 fn main() {

@@ -20,6 +20,7 @@ pub struct Impl<'a> {
 	self_arg: FnSelfArg,
 	mut_self: bool,
 	param: Option<(Cow<'a, str>, Cow<'a, str>)>,
+	has_generic: bool,
 	ret_type: Option<&'a str>,
 	body: Cow<'a, str>
 }
@@ -46,6 +47,10 @@ pub enum ImplSpec<'a> {
 		target: &'a str,
 		other_type: &'a str,
 		ret_type: &'a str,
+		body: &'a str
+	},
+	Format {
+		target: &'a str,
 		body: &'a str
 	}
 }
@@ -92,13 +97,14 @@ impl<'a> ImplSink<'a> {
 
 impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 	fn from(value: ImplSpec<'a>) -> Self {
-		let (target, output, self_arg, mut_self, param, ret_type, body) = match value {
+		let (target, output, self_arg, mut_self, param, has_generic, ret_type, body) = match value {
 			ImplSpec::Binary { target, output, operand_bind, operand_type, body } => (
 				target,
 				output,
 				TakeSelf,
 				true,
 				Some((operand_bind.into(), operand_type.into())),
+				true,
 				output,
 				body.into(),
 			),
@@ -108,6 +114,7 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 				MutSelf,
 				false,
 				Some((operand_bind.into(), operand_type.into())),
+				true,
 				None,
 				expr.into()
 			),
@@ -117,6 +124,7 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 				TakeSelf,
 				false,
 				None,
+				true,
 				Some("Self"),
 				body.into()
 			),
@@ -126,7 +134,18 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 				RefSelf,
 				false,
 				Some(("other".into(), format!("&{other_type}").into())),
+				true,
 				Some(ret_type),
+				body.into()
+			),
+			ImplSpec::Format { target, body } => (
+				target,
+				None,
+				RefSelf,
+				false,
+				Some(("f".into(), "&mut core::fmt::Formatter<'_>".into())),
+				false,
+				Some("core::fmt::Result"),
 				body.into()
 			)
 		};
@@ -137,6 +156,7 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 			self_arg,
 			mut_self,
 			param,
+			has_generic,
 			ret_type,
 			body
 		}
@@ -176,7 +196,7 @@ impl Impl<'_> {
 	fn format_trait(&self, trait_name: &str) -> String {
 		self.param
 			.as_ref()
-			.filter(|(_, ty)| ty != "Self")
+			.filter(|(_, ty)| self.has_generic && ty != "Self")
 			.map_or_else(
 				|| trait_name.into(),
 				|(_, ty)|

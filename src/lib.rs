@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod cmp;
+mod fmt;
 mod ops;
 mod util;
 
@@ -10,6 +11,7 @@ use strum::{EnumIter, EnumString, IntoEnumIterator};
 use virtue::parse::{Attribute, StructBody};
 use virtue::prelude::*;
 use crate::cmp::generate_cmp;
+use crate::fmt::generate_fmt;
 use crate::ops::{Arithmetic, Bit, Op};
 
 #[derive(EnumIter, EnumString, Eq, PartialEq, Hash)]
@@ -57,7 +59,7 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 			match group {
 				Group::Arithmetic => Arithmetic::generate_all(&mut gen, target, inner)?,
 				Group::Bitwise => Bit::generate_all(&mut gen, target, inner)?,
-				Group::Formatting => { }
+				Group::Formatting => generate_fmt(&mut gen, target, inner)?,
 				Group::Comparison => generate_cmp(&mut gen, target, inner)?
 			}
 		}
