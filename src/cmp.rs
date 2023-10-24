@@ -1,36 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use virtue::prelude::*;
+use crate::util::Impl;
+use crate::util::ImplSpec::Comparison;
 
-pub fn expand_eq(gen: &mut Generator, target: &str, other: &str) -> Result {
-	expand_cmp(gen, "Eq", "eq", "bool", target, other, "self.0.eq(other)")?;
-	expand_cmp(gen, "Eq", "eq", "bool", other, target, "self.eq(&other.0)")
+pub fn generate_cmp(gen: &mut Generator, target: &str, other: &str) -> Result {
+	macro_rules! gen_cmp {
+		($trait:literal, $fn:literal, $ret:literal) => {
+			gen_cmp(gen, concat!("Partial", $trait), $fn, target, other, $ret, concat!("self.0.", $fn, "(other)"))?;
+			gen_cmp(gen, concat!("Partial", $trait), $fn, other, target, $ret, concat!("self.", $fn, "(&other.0)"))?;
+		};
+	}
+
+	gen_cmp!("Eq",  "eq", "bool");
+	gen_cmp!("Ord", "partial_cmp", "Option<core::cmp::Ordering>");
+	Ok(())
 }
 
-pub fn expand_ord(gen: &mut Generator, target: &str, other: &str) -> Result {
-	const ORDERING: &str = "Option<core::cmp::Ordering>";
-	expand_cmp(gen, "Ord", "partial_cmp", ORDERING, target, other, "self.0.partial_cmp(other)")?;
-	expand_cmp(gen, "Ord", "partial_cmp", ORDERING, other, target, "self.partial_cmp(&other.0)")
-}
-
-fn expand_cmp(
+fn gen_cmp<'a>(
 	gen: &mut Generator,
-	name: &str,
+	trait_name: &str,
 	fn_name: &str,
-	fn_ret: &str,
-	target: &str,
-	other: &str,
-	comparison: &str
+	target: &'a str,
+	other_type: &'a str,
+	ret_type: &'a str,
+	body: &'a str
 ) -> Result {
-	let name = format!("Partial{name}<{other}>");
-	let mut gen = gen.impl_trait_for_other_type(name, target);
-	gen.impl_outer_attr("automatically_derived")?;
-	gen.generate_fn(fn_name)
-	   .with_self_arg(FnSelfArg::RefSelf)
-	   .with_arg("other", format!("&{other}"))
-	   .with_return_type(fn_ret)
-	   .body(|body| {
-		   body.push_parsed(comparison)?;
-		   Ok(())
-	   })
+	Impl::from(
+		Comparison { target, other_type, ret_type, body }
+	).build(gen, trait_name, fn_name)
 }

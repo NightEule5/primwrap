@@ -1,217 +1,245 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
-use virtue::generate::{FnSelfArg, Generator};
 use virtue::prelude::*;
+use crate::util::{ImplSink, ImplSpec};
+use crate::util::ImplSpec::*;
 
-pub trait Op: Sized {
+macro_rules! binary_op_filter {
+	(binary $($concat:tt)+) => {
+		Some($($concat)+)
+	};
+	(unary $($concat:tt)+) => {
+		None
+	}
+}
+
+macro_rules! op_enum {
+	(enum $name:ident { $($op_type:ident $op_name:ident = $fn_name:literal),+ }) => {
+		#[derive(Clone, Copy)]
+		pub enum $name {
+			$($op_name),+
+		}
+
+		impl OpData for $name {
+			fn trait_name(&self) -> &'static str {
+				match self {
+					$(Self::$op_name => stringify!(core::ops::$op_name)),+
+				}
+			}
+
+			fn fn_name(&self) -> &'static str {
+				match self {
+					$(Self::$op_name => $fn_name),+
+				}
+			}
+
+			fn assign_trait_name(&self) -> Option<&'static str> {
+				match self {
+					$(Self::$op_name => binary_op_filter!($op_type concat!(stringify!(core::ops::$op_name), "Assign"))),+
+				}
+			}
+
+			fn assign_fn_name(&self) -> Option<&'static str> {
+				match self {
+					$(Self::$op_name => binary_op_filter!($op_type concat!($fn_name, "_assign"))),+
+				}
+			}
+		}
+	};
+}
+
+op_enum! {
+	enum Arithmetic {
+		binary Add = "add",
+		binary Sub = "sub",
+		binary Mul = "mul",
+		binary Div = "div",
+		binary Rem = "rem",
+		 unary Neg = "neg"
+	}
+}
+
+op_enum! {
+	enum Bit {
+		binary BitAnd = "bitand",
+		binary BitOr  = "bitor",
+		binary BitXor = "bitxor",
+		binary Shl    = "shl",
+		binary Shr    = "shr",
+		 unary Not    = "not"
+	}
+}
+
+pub trait OpData {
 	fn trait_name(&self) -> &'static str;
 	fn fn_name(&self) -> &'static str;
+	fn assign_trait_name(&self) -> Option<&'static str>;
+	fn assign_fn_name(&self) -> Option<&'static str>;
+}
 
-	fn expand(&self, gen: &mut Generator, target: &str, inner: &str) -> Result;
+pub trait Op: OpData + Sized {
+	fn supported(type_name: &str) -> &[Self];
 
-	fn expand_as_binary(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
-		expand_binary(self, gen, "Self", target, target, BinaryType::SelfSelf)?;
-		expand_binary(self, gen, inner, target, target, BinaryType::SelfOperand(true, inner))
+	fn generate_all(gen: &mut Generator, target: &str, inner: &str) -> Result {
+		for op in Self::supported(inner) {
+			let sink = ImplSink::new_for(gen, op);
+			op.generate(sink, target, inner)?;
+		}
+		Ok(())
 	}
-}
 
-pub fn arithmetic_ops_for_type(type_name: &str) -> impl Iterator<Item = Arithmetic> {
-	let iter = Arithmetic::iter();
+	fn generate(&self, sink: ImplSink, target: &str, inner: &str) -> Result;
 
-	// Exclude negation for unsigned types
-	if type_name.starts_with('u') {
-		iter.take(5)
-	} else {
-		iter.take(6)
+	fn generate_as_binary_with_self(&self, sink: &mut ImplSink, target: &str) -> Result {
+		self.generate_as_binary(
+			sink,
+			target,
+			Some("Self(rhs)".into()),
+			"Self",
+			"Self",
+			format!(
+				"{}::{}(&mut self.0, rhs)",
+				self.assign_trait_name().unwrap(),
+				self.assign_fn_name().unwrap()
+			),
+			None
+		)
 	}
-}
 
-pub fn bit_ops_for_bool<'a>() -> &'a [Bit] {
-	&[Bit::And, Bit::Or, Bit::Xor, Bit::Not]
-}
+	fn generate_as_binary_with_inverse(&self, sink: &mut ImplSink, target: &str, operand: &str, inner: &str) -> Result {
+		let trait_name = self.assign_trait_name().unwrap();
+		let fn_name = self.assign_fn_name().unwrap();
+		let expr = |field_access|
+			format!(
+				"use {trait_name};\
+				self{field_access}.{fn_name}(rhs)"
+			);
 
-#[derive(Clone, Copy, EnumIter, IntoStaticStr)]
-pub enum Arithmetic {
-	Add,
-	Sub,
-	Mul,
-	Div,
-	Rem,
-	Neg
-}
+		self.generate_as_binary(
+			sink,
+			target,
+			None,
+			operand,
+			"Self",
+			expr(".0"),
+			None
+		)?;
 
-#[derive(Clone, Copy, EnumIter, IntoStaticStr)]
-pub enum Bit {
-	#[strum(to_string = "BitAnd")]
-	And,
-	#[strum(to_string = "BitOr")]
-	Or,
-	#[strum(to_string = "BitXor")]
-	Xor,
-	Shl,
-	Shr,
-	Not
+		let cast = if inner == operand {
+			format!("")
+		} else {
+			format!(" as {inner}")
+		};
+
+		self.generate_as_binary(
+			sink,
+			operand,
+			Some(format!("{target}(rhs)")),
+			target,
+			target,
+			expr(""),
+			Some(format!("{target}(self{cast})"))
+		)
+	}
+
+	fn generate_as_binary(
+		&self,
+		sink: &mut ImplSink,
+		target: &str,
+		operand_bind: Option<String>,
+		operand_type: &str,
+		output: &str,
+		expr: String,
+		ret: Option<String>
+	) -> Result {
+		let ret = ret.unwrap_or_else(|| "self".into());
+
+		sink.push(Binary {
+			target,
+			output: Some(output),
+			operand_bind: operand_bind.clone().map_or("rhs".into(), Into::into),
+			operand_type,
+			body: format!("{expr}; {ret}")
+		})?;
+		sink.push(Assign {
+			target,
+			operand_bind: operand_bind.map_or("rhs".into(), Into::into),
+			operand_type,
+			expr
+		})
+	}
+
+	fn generate_as_unary<'a>(&'a self, target: &'a str) -> ImplSpec<'a> {
+		Unary {
+			target,
+			body: format!(
+				"Self({}::{}(self.0))",
+				self.trait_name(),
+				self.fn_name()
+			)
+		}
+	}
 }
 
 impl Op for Arithmetic {
-	fn trait_name(&self) -> &'static str {
-		self.into()
-	}
+	fn supported(type_name: &str) -> &[Self] {
+		let ops: &[Self] = &[
+			Self::Add,
+			Self::Sub,
+			Self::Mul,
+			Self::Div,
+			Self::Rem,
+			Self::Neg
+		];
 
-	fn fn_name(&self) -> &'static str {
-		match self {
-			Self::Add => "add",
-			Self::Sub => "sub",
-			Self::Mul => "mul",
-			Self::Div => "div",
-			Self::Rem => "rem",
-			Self::Neg => "neg"
+		match type_name {
+			"bool" => &[],
+			name if name.starts_with('u') => &ops[..5],
+			_ => ops
 		}
 	}
 
-	fn expand(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
+	fn generate(&self, ref mut sink: ImplSink, target: &str, inner: &str) -> Result {
 		if let Self::Neg = self {
-			expand_unary(self, gen)
+			sink.push(self.generate_as_unary(target))
 		} else {
-			self.expand_as_binary(gen, target, inner)
+			self.generate_as_binary_with_self(sink, target)?;
+			self.generate_as_binary_with_inverse(sink, target, inner, inner)
 		}
 	}
 }
 
 impl Op for Bit {
-	fn trait_name(&self) -> &'static str { self.into() }
-
-	fn fn_name(&self) -> &'static str {
-		match self {
-			Self::And => "bitand",
-			Self::Or  => "bitor",
-			Self::Xor => "bitxor",
-			Self::Shl => "shl",
-			Self::Shr => "shr",
-			Self::Not => "not"
+	fn supported(type_name: &str) -> &[Self] {
+		if type_name == "bool" {
+			&[Self::BitAnd, Self::BitOr, Self::BitXor, Self::Not]
+		} else {
+			&[Self::BitAnd, Self::BitOr, Self::BitXor, Self::Shl, Self::Shr, Self::Not]
 		}
 	}
 
-	fn expand(&self, gen: &mut Generator, target: &str, inner: &str) -> Result {
+	fn generate(&self, ref mut sink: ImplSink, target: &str, inner: &str) -> Result {
 		if let Self::Not = self {
-			expand_unary(self, gen)
+			sink.push(self.generate_as_unary(target))
 		} else if let Self::Shl | Self::Shr = self {
-			const INT_TYPES: &[&str] = &[
+			static INT_TYPES: &[&str] = &[
 				"u8", "u16", "u32", "u64", "u128", "usize",
 				"i8", "i16", "i32", "i64", "i128", "isize"
 			];
 
-			if INT_TYPES.contains(&inner) {
-				expand_binary(self, gen, "Self", target, target, BinaryType::SelfSelf)?;
-			} else {
-				self.expand_as_binary(gen, target, inner)?;
+			self.generate_as_binary_with_self(sink, target)?;
+			if !INT_TYPES.contains(&inner) {
+				self.generate_as_binary_with_inverse(sink, target, inner, inner)?;
 			}
 
 			for &int_type in INT_TYPES {
-				expand_binary(self, gen, int_type, target, target, BinaryType::SelfOperand(true, inner))?;
+				self.generate_as_binary_with_inverse(sink, target, int_type, inner)?;
 			}
-
+			
 			Ok(())
 		} else {
-			self.expand_as_binary(gen, target, inner)
+			self.generate_as_binary_with_self(sink, target)?;
+			self.generate_as_binary_with_inverse(sink, target, inner, inner)
 		}
 	}
-}
-
-#[derive(Copy, Clone)]
-enum BinaryType<'a> {
-	SelfSelf,
-	SelfOperand(bool, &'a str),
-	OperandSelf(&'a str)
-}
-
-fn expand_binary(op: &impl Op, gen: &mut Generator, operand: &str, output: &str, target: &str, ty: BinaryType) -> Result {
-	let trait_name = format!("core::ops::{}<{operand}>", op.trait_name());
-	let param = match ty {
-		BinaryType::SelfSelf => "Self(rhs)".into(),
-		BinaryType::OperandSelf(_) => format!("{operand}(rhs)"),
-		_ => "rhs".into()
-	};
-	let expr = binary_expr(op, ty);
-
-	expand_assign(op, gen, operand, &param, target, &expr)?;
-
-	// Use impl_trait_for_other_type instead of impl_for for greater flexibility.
-	// It's all the same underneath anyway.
-	let mut r#if = gen.impl_trait_for_other_type(trait_name, target);
-	r#if.impl_outer_attr("automatically_derived")?;
-	r#if.impl_type("Output", output)?;
-	r#if.generate_fn(op.fn_name())
-		.with_arg("mut self", "Self")
-		.with_arg(param, operand)
-		.with_return_type(output)
-		.body(|body| {
-			body.push_parsed(expr)?;
-
-			if let BinaryType::OperandSelf(inner) = ty {
-				let cast = if inner == target {
-					"".into()
-				} else {
-					format!(" as {inner}")
-				};
-
-				// For inverse operations, wrap the result at the end.
-				body.push_parsed(format!("{output}(self{cast})"))?;
-			} else {
-				body.ident_str("self");
-			}
-
-			Ok(())
-		})?;
-	drop(r#if);
-
-	// Generate the inverse (impl Op<Wrapper> for Primitive).
-	if let BinaryType::SelfOperand(true, inner) = ty {
-		expand_binary(op, gen, target, target, operand, BinaryType::OperandSelf(inner))?;
-	}
-
-	Ok(())
-}
-
-fn expand_assign(op: &impl Op, gen: &mut Generator, operand: &str, operand_param: &str, output: &str, expr: &str) -> Result {
-	let trait_name = format!("core::ops::{}Assign<{operand}>", op.trait_name());
-	let mut r#if = gen.impl_trait_for_other_type(trait_name, output);
-	r#if.impl_outer_attr("automatically_derived")?;
-	r#if.generate_fn(format!("{}_assign", op.fn_name()))
-		.with_self_arg(FnSelfArg::MutSelf)
-		.with_arg(operand_param, operand)
-		.body(|body| {
-			body.push_parsed(expr)?;
-			Ok(())
-		})
-}
-
-fn binary_expr(op: &impl Op, ty: BinaryType) -> String {
-	let fn_name = op.fn_name();
-	let trait_name = op.trait_name();
-	let field_access = match ty {
-		BinaryType::SelfSelf |
-		BinaryType::SelfOperand(_, _) => ".0",
-		BinaryType::OperandSelf(_) => ""
-	};
-	format!(
-		"use core::ops::{trait_name}Assign;\
-		self{field_access}.{fn_name}_assign(rhs);"
-	)
-}
-
-fn expand_unary(op: &impl Op, gen: &mut Generator) -> Result {
-	let trait_name = format!("core::ops::{}", op.trait_name());
-	let fn_name = op.fn_name();
-	let mut r#if = gen.impl_for(trait_name);
-	r#if.impl_outer_attr("automatically_derived")?;
-	r#if.impl_type("Output", "Self")?;
-	r#if.generate_fn(fn_name)
-		.with_self_arg(FnSelfArg::TakeSelf)
-		.with_return_type("Self")
-		.body(|body| {
-			body.push_parsed(format!("Self(self.0.{fn_name}())"))?;
-			Ok(())
-		})
 }
