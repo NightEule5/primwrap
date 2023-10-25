@@ -3,28 +3,35 @@
 use virtue::prelude::*;
 use crate::util::Impl;
 use crate::util::ImplSpec::Format;
-
-macro_rules! body {
-    ($fmt_trait:literal) => {
-		concat!("core::fmt::", $fmt_trait, "::fmt(&self.0, f)")
-	};
-}
+use const_format::concatcp;
 
 pub fn generate_fmt(gen: &mut Generator, target: &str, inner: &str) -> Result {
-	macro_rules! gen_fmt {
-		($($fmt_trait:literal),+) => {
+	macro_rules! gen {
+		($($fmt_trait:ident),+) => {
 			$(
-			Impl::from(
-				Format { target, body: body!($fmt_trait) }
-			).build(gen, concat!("core::fmt::", $fmt_trait), "fmt")?;
+			#[allow(non_snake_case)]
+			let $fmt_trait = |gen| {
+				const PATH: &str = concat!("core::fmt::", stringify!($fmt_trait));
+				const BODY: &str = concatcp!(PATH, "::fmt(&self.0, f)");
+				Impl::from(Format { target, body: BODY }).build(gen, PATH, "fmt")
+			};
 			)+
 		};
 	}
 
-	gen_fmt!("Debug", "Display");
+	macro_rules! build {
+		($($fmt_trait:ident),+) => {{
+			$($fmt_trait(gen)?;)+
+		}};
+	}
 
-	if inner != "bool" {
-		gen_fmt!("Octal", "Binary", "LowerHex", "UpperHex", "LowerExp", "UpperExp");
+	gen!(Debug, Display, Binary, Octal, LowerExp, LowerHex, UpperExp, UpperHex);
+
+	build!(Debug, Display);
+	match inner {
+		"bool" => { }
+		_ if inner.starts_with('f') => build!(LowerExp, UpperExp),
+		_ => build!(Binary, Octal, LowerExp, LowerHex, UpperExp, UpperHex)
 	}
 
 	Ok(())

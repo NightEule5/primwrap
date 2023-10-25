@@ -33,5 +33,5 @@ struct Int(u64);
 
 This crate provides similar functionality to the [newtype_derive](https://crates.io/crates/newtype_derive)
 crate, but the derived traits are specified individually. It is more generalized for all new-type patterns,
-whereas this crate is designed only for new-types wrapping integers and `bool`. Use newtype_derive if you
+whereas this crate is designed only for new-types wrapping integers, floats, and `bool`. Use newtype_derive if you
 need more fine-grained control over the traits implemented.

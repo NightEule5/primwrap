@@ -211,10 +211,10 @@ impl Op for Arithmetic {
 
 impl Op for Bit {
 	fn supported(type_name: &str) -> &[Self] {
-		if type_name == "bool" {
-			&[Self::BitAnd, Self::BitOr, Self::BitXor, Self::Not]
-		} else {
-			&[Self::BitAnd, Self::BitOr, Self::BitXor, Self::Shl, Self::Shr, Self::Not]
+		match type_name {
+			"bool" => &[Self::BitAnd, Self::BitOr, Self::BitXor, Self::Not],
+			name if name.starts_with('f') => &[],
+			_ => &[Self::BitAnd, Self::BitOr, Self::BitXor, Self::Shl, Self::Shr, Self::Not]
 		}
 	}
 
