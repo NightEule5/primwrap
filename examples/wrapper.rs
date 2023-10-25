@@ -38,4 +38,8 @@ fn main() {
 	assert_eq!(wrapped - 3.0, 2.0);
 	assert_eq!(wrapped * 7.0, 35.0);
 	assert_eq!(wrapped / 2.0, 2.5);
+
+	let list = [Int(1), Int(2), Int(3), Int(4)];
+	assert_eq!(list.into_iter().sum::<Int>(), 10);
+	assert_eq!(list.into_iter().product::<u32>(), 24);
 }

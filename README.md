@@ -20,12 +20,13 @@ The implemented traits are:
 - Bitwise: `Not`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`
 - Passthrough Formatting: `Debug`, `Display`, `Binary`, `LowerExp`, `LowerHex`, `Octal`, `UpperExp`, `UpperHex`
 - Comparison: `PartialEq`/`PartialOrd` with the inner type
+- Accumulation: `Sum` and `Product`
 
 By default, all of the above traits are implemented. These groups can also be selected individually:
 
 ```rust
 #[derive(Primitive)]
-#[primwrap(arithmetic, bitwise, formatting, comparison)]
+#[primwrap(arithmetic, bitwise, formatting, comparison, accumulation)]
 struct Int(u64);
 ```
 

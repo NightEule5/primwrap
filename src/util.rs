@@ -20,6 +20,7 @@ pub struct Impl<'a> {
 	self_arg: FnSelfArg,
 	mut_self: bool,
 	param: Option<(Cow<'a, str>, Cow<'a, str>)>,
+	fn_generic: Option<(&'a str, String)>,
 	has_generic: bool,
 	ret_type: Option<&'a str>,
 	body: Cow<'a, str>
@@ -52,6 +53,11 @@ pub enum ImplSpec<'a> {
 	Format {
 		target: &'a str,
 		body: &'a str
+	},
+	Accum {
+		target: &'a str,
+		element_type: &'a str,
+		body: String
 	}
 }
 
@@ -97,13 +103,14 @@ impl<'a> ImplSink<'a> {
 
 impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 	fn from(value: ImplSpec<'a>) -> Self {
-		let (target, output, self_arg, mut_self, param, has_generic, ret_type, body) = match value {
+		let (target, output, self_arg, mut_self, param, fn_generic, has_generic, ret_type, body) = match value {
 			ImplSpec::Binary { target, output, operand_bind, operand_type, body } => (
 				target,
 				output,
 				TakeSelf,
 				true,
 				Some((operand_bind.into(), operand_type.into())),
+				None,
 				true,
 				output,
 				body.into(),
@@ -114,6 +121,7 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 				MutSelf,
 				false,
 				Some((operand_bind.into(), operand_type.into())),
+				None,
 				true,
 				None,
 				expr.into()
@@ -123,6 +131,7 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 				Some("Self"),
 				TakeSelf,
 				false,
+				None,
 				None,
 				true,
 				Some("Self"),
@@ -134,6 +143,7 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 				RefSelf,
 				false,
 				Some(("other".into(), format!("&{other_type}").into())),
+				None,
 				true,
 				Some(ret_type),
 				body.into()
@@ -144,10 +154,22 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 				RefSelf,
 				false,
 				Some(("f".into(), "&mut core::fmt::Formatter<'_>".into())),
+				None,
 				false,
 				Some("core::fmt::Result"),
 				body.into()
-			)
+			),
+			ImplSpec::Accum { target, element_type, body } => (
+				target,
+				None,
+				FnSelfArg::None,
+				false,
+				Some(("iter".into(), "I".into())),
+				Some(("I", format!("Iterator<Item = {element_type}>"))),
+				false,
+				Some("Self"),
+				body.into()
+			),
 		};
 
 		Self {
@@ -156,6 +178,7 @@ impl<'a> From<ImplSpec<'a>> for Impl<'a> {
 			self_arg,
 			mut_self,
 			param,
+			fn_generic,
 			has_generic,
 			ret_type,
 			body
@@ -185,6 +208,9 @@ impl Impl<'_> {
 		}
 		if let Some(rt) = self.ret_type {
 			gen = gen.with_return_type(rt);
+		}
+		if let Some((gen_name, gen_type)) = self.fn_generic {
+			gen = gen.with_generic_deps(gen_name, [gen_type]);
 		}
 
 		gen.body(|b| {

@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
+mod accum;
 mod cmp;
 mod fmt;
 mod ops;
 mod util;
 
 use proc_macro::TokenStream;
-use std::collections::HashSet;
 use strum::{EnumIter, EnumString, IntoEnumIterator};
 use virtue::parse::{Attribute, StructBody};
 use virtue::prelude::*;
+use crate::accum::generate_accum;
 use crate::cmp::generate_cmp;
 use crate::fmt::generate_fmt;
 use crate::ops::{Arithmetic, Bit, Op};
 
-#[derive(EnumIter, EnumString, Eq, PartialEq, Hash)]
+#[derive(EnumIter, EnumString, Eq, PartialEq)]
 #[strum(ascii_case_insensitive)]
 enum Group {
 	Arithmetic,
 	Bitwise,
 	Formatting,
-	Comparison
+	Comparison,
+	Accumulation
 }
 
 /// Derives arithmetic, bitwise, comparison, and formatting traits on a primitive
@@ -33,6 +35,7 @@ enum Group {
 /// - `formatting` enables `Debug`, `Display`, `Binary`, `Octal`, `LowerExp`,
 ///   `LowerHex`, `UpperExp`, and `UpperHex`
 /// - `comparison` enables `PartialEq`/`PartialOrd` with the inner type
+/// - `accumulation` enables `Sum` and `Product`
 #[proc_macro_derive(Primitive, attributes(primwrap))]
 pub fn primitive_derive(input: TokenStream) -> TokenStream {
 	let expand = || {
@@ -40,7 +43,7 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 		let groups = if let Parse::Struct { ref attributes, .. } = parsed {
 			parse_attributes(attributes)?
 		} else {
-			HashSet::default()
+			Vec::default()
 		};
 
 		let (
@@ -65,12 +68,14 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 		let ref target = gen.target_name().to_string();
 		let ref inner = inner_type.to_string();
 
+		let has_arith = groups.contains(&Group::Arithmetic);
 		for group in groups {
 			match group {
 				Group::Arithmetic => Arithmetic::generate_all(&mut gen, target, inner)?,
 				Group::Bitwise => Bit::generate_all(&mut gen, target, inner)?,
 				Group::Formatting => generate_fmt(&mut gen, target, inner)?,
-				Group::Comparison => generate_cmp(&mut gen, target, inner)?
+				Group::Comparison => generate_cmp(&mut gen, target, inner)?,
+				Group::Accumulation => generate_accum(&mut gen, has_arith, target, inner)?,
 			}
 		}
 
@@ -80,7 +85,7 @@ pub fn primitive_derive(input: TokenStream) -> TokenStream {
 	expand().unwrap_or_else(Error::into_token_stream)
 }
 
-fn parse_attributes(attributes: &Vec<Attribute>) -> Result<HashSet<Group>> {
+fn parse_attributes(attributes: &Vec<Attribute>) -> Result<Vec<Group>> {
 	fn convert_error<T>(result: syn::Result<T>) -> Result<T> {
 		result.map_err(|err| Error::custom_at(err.to_string(), err.span().unwrap()))
 	}
@@ -91,13 +96,13 @@ fn parse_attributes(attributes: &Vec<Attribute>) -> Result<HashSet<Group>> {
 		let list = convert_error(meta.require_list())?;
 		if !list.path.is_ident("primwrap") { continue }
 
-		let mut groups = HashSet::with_capacity(4);
+		let mut groups = Vec::with_capacity(4);
 		convert_error(list.parse_nested_meta(|meta| {
 			let ident = meta.path.require_ident()?.to_string();
 			let group = ident.parse().map_err(|_|
 				meta.input.error(r#"expected "arithmetic", "bitwise", "formatting", or "comparison""#)
 			)?;
-			groups.insert(group);
+			groups.push(group);
 			Ok(())
 		}))?;
 
