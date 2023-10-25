@@ -23,6 +23,16 @@ enum Group {
 	Comparison
 }
 
+/// Derives arithmetic, bitwise, comparison, and formatting traits on a primitive
+/// wrapper struct, exposing its inner type. Integer, float, and boolean types are
+/// supported.
+///
+/// The implemented traits can be selected with a `#[primwrap(...)]` attribute:
+/// - `arithmetic` enables `Add`, `Sub`, `Mul`, `Div`, `Rem`, and `Neg`
+/// - `bitwise` enables `Not`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, and `Shr`
+/// - `formatting` enables `Debug`, `Display`, `Binary`, `Octal`, `LowerExp`,
+///   `LowerHex`, `UpperExp`, and `UpperHex`
+/// - `comparison` enables `PartialEq`/`PartialOrd` with the inner type
 #[proc_macro_derive(Primitive, attributes(primwrap))]
 pub fn primitive_derive(input: TokenStream) -> TokenStream {
 	let expand = || {
