@@ -6,7 +6,7 @@ description = "Derive operation traits for primitive wrapper structs."
 keywords = ["derive", "proc_macro", "wrappers"]
 license = "Apache-2.0"
 edition = "2021"
-repository = "https://github.com/NightEule/primwrap/"
+repository = "https://github.com/NightEule5/primwrap/"
 
 [lib]
 proc-macro = true
