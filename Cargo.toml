@@ -1,11 +1,12 @@
 [package]
 name = "primwrap"
-version = "0.0.1"
+version = "1.0.0"
 authors = ["NightEule5 <24661563+NightEule5@users.noreply.github.com>"]
 description = "Derive operation traits for primitive wrapper structs."
 keywords = ["derive", "proc_macro", "wrappers"]
 license = "Apache-2.0"
 edition = "2021"
+repository = "https://github.com/NightEule/primwrap/"
 
 [lib]
 proc-macro = true
@@ -15,4 +16,3 @@ const_format = "0.2.32"
 strum = { version = "0.25.0", features = ["derive"] }
 syn = "2.0.38"
 virtue = "0.0.15"
-
