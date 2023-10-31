@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
-mod accum;
-mod cmp;
-mod fmt;
+mod gen;
 mod ops;
-mod util;
 
 use proc_macro::TokenStream;
-use strum::{EnumIter, EnumString, IntoEnumIterator};
-use virtue::parse::{Attribute, StructBody};
+use std::collections::HashSet;
+use strum::EnumString;
+use virtue::parse::{Attribute, AttributeLocation, StructBody};
 use virtue::prelude::*;
-use crate::accum::generate_accum;
-use crate::cmp::generate_cmp;
-use crate::fmt::generate_fmt;
-use crate::ops::{Arithmetic, Bit, Op};
+use virtue::utils::{parse_tagged_attribute, ParsedAttribute};
+use ops::*;
 
-#[derive(EnumIter, EnumString, Eq, PartialEq)]
+#[derive(EnumString, Eq, PartialEq, Hash)]
 #[strum(ascii_case_insensitive)]
 enum Group {
 	Arithmetic,
@@ -39,77 +35,84 @@ enum Group {
 #[proc_macro_derive(Primitive, attributes(primwrap))]
 pub fn primitive_derive(input: TokenStream) -> TokenStream {
 	let expand = || {
-		let parsed = Parse::new(input)?;
-		let groups = if let Parse::Struct { ref attributes, .. } = parsed {
-			parse_attributes(attributes)?
-		} else {
-			Vec::default()
-		};
-
 		let (
-			mut gen,
-			_,
+			gen,
+			attributes,
 			Body::Struct(
 				StructBody {
 					fields: Some(Fields::Tuple(fields))
 				}
 			)
-		) = parsed.into_generator() else {
+		) = Parse::new(input)?.into_generator() else {
 			return Err(Error::custom("expected tuple struct"))
 		};
-
+		let groups = parse_attributes(attributes)?;
 		let [field] = &fields[..] else {
 			return Err(Error::custom("expected tuple struct with one field"))
 		};
-
 		let [TokenTree::Ident(inner_type)] = &field.r#type[..] else {
 			return Err(Error::custom("unknown type"))
 		};
 		let ref target = gen.target_name().to_string();
 		let ref inner = inner_type.to_string();
+		let mut impl_sink = gen.into();
 
-		let has_arith = groups.contains(&Group::Arithmetic);
-		for group in groups {
+		for group in &groups {
 			match group {
-				Group::Arithmetic => Arithmetic::generate_all(&mut gen, target, inner)?,
-				Group::Bitwise => Bit::generate_all(&mut gen, target, inner)?,
-				Group::Formatting => generate_fmt(&mut gen, target, inner)?,
-				Group::Comparison => generate_cmp(&mut gen, target, inner)?,
-				Group::Accumulation => generate_accum(&mut gen, has_arith, target, inner)?,
+				Group::Arithmetic => Arithmetic::generate_all(&mut impl_sink, target, inner),
+				Group::Bitwise    => Bit       ::generate_all(&mut impl_sink, target, inner),
+				Group::Formatting => Formatting::generate_all(&mut impl_sink, target, inner),
+				Group::Comparison => Comparison::generate_all(&mut impl_sink, target, inner),
+				Group::Accumulation
+					if groups.contains(&Group::Arithmetic) =>
+					Accumulation::generate_all(&mut impl_sink, target, inner),
+				_ => { }
 			}
 		}
 
-		gen.finish()
+		impl_sink.finish()
 	};
 
 	expand().unwrap_or_else(Error::into_token_stream)
 }
 
-fn parse_attributes(attributes: &Vec<Attribute>) -> Result<Vec<Group>> {
-	fn convert_error<T>(result: syn::Result<T>) -> Result<T> {
-		result.map_err(|err| Error::custom_at(err.to_string(), err.span().unwrap()))
+fn parse_attributes(attributes: Vec<Attribute>) -> Result<HashSet<Group>> {
+	let attrs = attributes.iter().filter_map(|Attribute { location, tokens, .. }|
+		matches!(location, AttributeLocation::Container).then_some(tokens)
+	).collect::<Vec<_>>();
+
+	if attrs.is_empty() {
+		return Ok([
+			Group::Arithmetic,
+			Group::Bitwise,
+			Group::Formatting,
+			Group::Comparison,
+			Group::Accumulation,
+		].into())
 	}
 
-	for Attribute { tokens, .. } in attributes.iter() {
-		let stream = tokens.stream();
-		let meta: syn::Meta = convert_error(syn::parse(stream))?;
-		let list = convert_error(meta.require_list())?;
-		if !list.path.is_ident("primwrap") { continue }
-
-		let mut groups = Vec::with_capacity(4);
-		convert_error(list.parse_nested_meta(|meta| {
-			let ident = meta.path.require_ident()?.to_string();
-			let group = ident.parse().map_err(|_|
-				meta.input.error(r#"expected "arithmetic", "bitwise", "formatting", or "comparison""#)
-			)?;
-			groups.push(group);
-			Ok(())
-		}))?;
-
-		if !groups.is_empty() {
-			return Ok(groups)
+	let mut groups = HashSet::with_capacity(5);
+	for tokens in attrs {
+		let Some(parsed) = parse_tagged_attribute(tokens, "primwrap")? else { continue };
+		for group in parsed {
+			match group {
+				ParsedAttribute::Tag(group) => {
+					groups.insert(
+						group.to_string()
+							 .parse()
+							 .map_err(|_|
+								 Error::custom_at(
+									 r#"expected "arithmetic", "bitwise", "formatting", or "comparison""#,
+									 group.span()
+								 )
+							 )?
+					);
+				}
+				ParsedAttribute::Property(_, val) =>
+					return Err(Error::custom_at("expected identifier", val.span())),
+				_ => return Err(Error::custom("expected identifier"))
+			}
 		}
 	}
-
-	Ok(Group::iter().collect())
+	Ok(groups)
 }

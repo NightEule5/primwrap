@@ -1,6 +1,6 @@
 [package]
 name = "primwrap"
-version = "1.1.0"
+version = "1.1.1"
 authors = ["NightEule5 <24661563+NightEule5@users.noreply.github.com>"]
 description = "Derive operation traits for primitive wrapper structs."
 keywords = ["derive", "proc_macro", "wrappers"]
@@ -12,7 +12,6 @@ repository = "https://github.com/NightEule5/primwrap/"
 proc-macro = true
 
 [dependencies]
-const_format = "0.2.32"
 strum = { version = "0.25.0", features = ["derive"] }
-syn = "2.0.38"
-virtue = "0.0.15"
+# Temporary until #74 fix makes it into a release.
+virtue = { git = "https://github.com/bincode-org/virtue/", rev = "f89b2b6" }
