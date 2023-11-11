@@ -139,13 +139,11 @@ impl<'a> Sink<'a> {
 	}
 
 	fn push_impl(&mut self, target: &str, generic_param: Option<&str>) -> Impl<'_> {
-		let name = if let Some(gp) = generic_param {
-			format!("{}<{gp}>", self.cur().trait_name())
-		} else {
-			self.cur().trait_name().into()
-		};
-
-		let mut builder = self.gen.impl_trait_for_other_type(name, target);
+		let name = self.cur().trait_name();
+		let generics = generic_param.as_slice().iter().cloned();
+		let mut builder = self.gen
+							  .impl_trait_for_other_type(name, target)
+							  .with_trait_generics(generics);
 		builder.impl_outer_attr("automatically_derived").unwrap();
 		Impl { fn_name: self.op.unwrap().fn_name(), builder }
 	}

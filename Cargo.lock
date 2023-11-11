@@ -82,4 +82,4 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 [[package]]
 name = "virtue"
 version = "0.0.15"
-source = "git+https://github.com/bincode-org/virtue/?rev=f89b2b6#f89b2b68514e5a8fdd0c58c7bf2c90dff1e1db81"
+source = "git+https://github.com/NightEule5/virtue/?rev=9f06493#9f0649338cac8b51c9d67106191400b32f1002d6"
