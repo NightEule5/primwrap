@@ -17,8 +17,6 @@ pub struct Impl<'a> {
 	builder: ImplFor<'a, Generator>
 }
 
-pub struct Fn<'a: 'b, 'b>(FnBuilder<'b, ImplFor<'a, Generator>>);
-
 impl From<Generator> for Sink<'_> {
 	fn from(gen: Generator) -> Self {
 		Self {
@@ -42,7 +40,9 @@ impl<'a> Sink<'a> {
 		);
 
 		self.push(data);
-		for Binary { target, output, lhs, rhs_bind, rhs_type, base_ret, .. } in ops {
+		for op in ops {
+			let &Binary { target, output, lhs, rhs_type, .. } = op;
+			let Binary { rhs_bind, base_ret, .. } = op;
 			let ret: Cow<_> = if let Some(ret) = base_ret {
 				ret.to_string().into()
 			} else {
@@ -52,16 +52,17 @@ impl<'a> Sink<'a> {
 			self.push_impl(target, Some(rhs_type))
 				.output_type(output)
 				.push_op_fn(|r#fn|
-					r#fn.with_self(MutTakeSelf)
-						.with_param(rhs_bind.clone(), *rhs_type)
-						.return_type(*output)
-						.body(format!("{assign_fn}(&mut {lhs}, rhs); {ret}"))
+					r#fn.with_self_arg(MutTakeSelf)
+						.with_arg(rhs_bind.clone(), rhs_type)
+						.with_return_type(output)
+						.parsed_body(format!("{assign_fn}(&mut {lhs}, rhs); {ret}"))
 				);
 		}
 
 		self.push(assign_data);
-		for Binary { target, lhs, lhs_mut, rhs_bind, rhs_type, .. } in ops {
-			let lhs: Cow<_> = if *lhs_mut {
+		for op in ops {
+			let &Binary { target, lhs, lhs_mut, rhs_type, .. } = op;
+			let lhs: Cow<_> = if lhs_mut {
 				format!("&mut {lhs}").into()
 			} else {
 				(*lhs).into()
@@ -69,9 +70,9 @@ impl<'a> Sink<'a> {
 
 			self.push_impl(target, Some(rhs_type))
 				.push_op_fn(|r#fn|
-					r#fn.with_self(MutSelf)
-						.with_param(rhs_bind.clone(), *rhs_type)
-						.body(format!("{assign_fn}({lhs}, rhs);"))
+					r#fn.with_self_arg(MutSelf)
+						.with_arg(op.rhs_bind.clone(), rhs_type)
+						.parsed_body(format!("{assign_fn}({lhs}, rhs);"))
 				);
 		}
 		self
@@ -82,9 +83,9 @@ impl<'a> Sink<'a> {
 			.push_impl(target, None)
 			.output_type("Self")
 			.push_op_fn(|r#fn|
-				r#fn.with_self(MutTakeSelf)
-					.return_type("Self")
-					.body(
+				r#fn.with_self_arg(MutTakeSelf)
+					.with_return_type("Self")
+					.parsed_body(
 						format!(
 							"self.0 = {}::{}(self.0); self",
 							data.trait_name(),
@@ -99,36 +100,38 @@ impl<'a> Sink<'a> {
 		for Comparing { target, other_bind, other_type, body } in ops {
 			self.push_impl(target, Some(other_type))
 				.push_op_fn(|r#fn|
-					r#fn.with_self(RefSelf)
-						.with_param(other_bind, format!("&{other_type}"))
-						.return_type(ret_type)
-						.body(body)
+					r#fn.with_self_arg(RefSelf)
+						.with_arg(other_bind, format!("&{other_type}"))
+						.with_return_type(ret_type)
+						.parsed_body(body)
 				);
 		}
 	}
 
 	pub fn formatting<O: OpData>(&mut self, target: &str, ops: &'a [O]) {
 		for op in ops {
+			let body = format!("{}::fmt(&self.0, f)", op.trait_name());
 			self.push(op)
 				.push_impl(target, None)
 				.push_op_fn(|r#fn|
-					r#fn.with_self(RefSelf)
-						.with_param("f", "&mut core::fmt::Formatter<'_>")
-						.return_type("core::fmt::Result")
-						.body(format!("{}::fmt(&self.0, f)", op.trait_name()))
+					r#fn.with_self_arg(RefSelf)
+						.with_arg("f", "&mut core::fmt::Formatter<'_>")
+						.with_return_type("core::fmt::Result")
+						.parsed_body(body)
 				);
 		}
 	}
 
 	pub fn accumulating(&mut self, data: &'a dyn OpData, ops: &[Accumulating]) {
 		self.push(data);
-		for Accumulating { target, element_type, body } in ops {
+		for op in ops {
+			let &Accumulating { target, element_type, .. } = op;
 			self.push_impl(target, Some(element_type))
 				.push_op_fn(|r#fn|
-					r#fn.generic_type("I", format!("Iterator<Item = {element_type}>"))
-						.with_param("iter", "I")
-						.return_type("Self")
-						.body(body.to_string())
+					r#fn.with_generic_deps("I", [format!("Iterator<Item = {element_type}>")])
+						.with_arg("iter", "I")
+						.with_return_type("Self")
+						.parsed_body(op.body.clone())
 				);
 		}
 	}
@@ -167,44 +170,26 @@ impl<'a> Impl<'a> {
 		self
 	}
 
-	fn push_op_fn(self, build: impl FnOnce(Fn<'a, '_>)) -> Self {
+	fn push_op_fn(self, build: impl FnOnce(FnBuilder<'_, ImplFor<'a, Generator>>)) -> Self {
 		let name = self.fn_name;
 		self.push_fn(name, build)
 	}
 
-	fn push_fn(mut self, name: &str, build: impl FnOnce(Fn<'a, '_>)) -> Self {
-		build(Fn(self.builder.generate_fn(name)));
+	fn push_fn(mut self, name: &str, build: impl FnOnce(FnBuilder<'_, ImplFor<'a, Generator>>)) -> Self {
+		build(self.builder.generate_fn(name));
 		self
 	}
 }
 
-impl<'a> Fn<'a, '_> {
-	fn with_self(mut self, self_arg: FnSelfArg) -> Self {
-		self.0 = self.0.with_self_arg(self_arg);
-		self
-	}
+trait FnBuilderExt: Sized {
+	fn parsed_body(self, body: impl AsRef<str>);
+}
 
-	fn with_param(mut self, name: impl Into<String>, ty: impl Into<String>) -> Self {
-		self.0 = self.0.with_arg(name, ty);
-		self
-	}
-
-	fn return_type(mut self, ty: impl Into<String>) -> Self {
-		self.0 = self.0.with_return_type(ty);
-		self
-	}
-
-	fn generic_type(mut self, name: impl Into<String>, bound: impl Into<String>) -> Self {
-		self.0 = self.0.with_generic_deps(name, [bound]);
-		self
-	}
-
-	fn body(self, body: impl AsRef<str>) {
-		self.0
-			.body(|bb| {
-				bb.push_parsed(body)?;
-				Ok(())
-			})
-			.expect("invalid body");
+impl FnBuilderExt for FnBuilder<'_, ImplFor<'_, Generator>> {
+	fn parsed_body(self, body: impl AsRef<str>) {
+		self.body(|bb| {
+			bb.push_parsed(body)?;
+			Ok(())
+		}).expect("invalid body");
 	}
 }
