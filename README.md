@@ -36,3 +36,9 @@ This crate provides similar functionality to the [newtype_derive](https://crates
 crate, but the derived traits are specified individually. It is more generalized for all new-type patterns,
 whereas this crate is designed only for new-types wrapping integers, floats, and `bool`. Use newtype_derive if you
 need more fine-grained control over the traits implemented.
+
+[amplify_derive](https://crates.io/crates/amplify_derive) also provides this functionality, with `#[derive(Wrapper)]`.
+This macro is more powerful and flexible—it derives more traits and supports more complex types—but requires
+the nightly Rust compiler for most derived traits. Prim Wrap works only for simple, known primitive types,
+sidestepping the `trivial_bounds` feature-gate. Amplify also only implements traits for the wrapper type itself,
+rather than the inner type (i.e. `Add<[inner type]>`).
