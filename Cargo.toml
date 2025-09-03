@@ -12,6 +12,5 @@ repository = "https://github.com/NightEule5/primwrap/"
 proc-macro = true
 
 [dependencies]
-strum = { version = "0.25.0", features = ["derive"] }
-# Temporary until #74 fix makes it into a release.
-virtue = { git = "https://github.com/NightEule5/virtue/", rev = "9f06493" }
+strum = { version = "0.27.2", features = ["derive"] }
+virtue = "0.0.18"
